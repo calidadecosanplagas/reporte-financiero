@@ -4,7 +4,8 @@
  * - Renderiza KPIs + tablas + paginación + búsqueda + gráficos
  */
 
-const EXCEL_URL = "data/reporte.xlsx";
+const EXCEL_PATH = "./data/reporte.xlsx";
+
 
 let state = {
   unicos: [],       // [{mes, venta, abono, diferencia}]
