@@ -4,8 +4,20 @@
  * - Renderiza KPIs + tablas + paginación + búsqueda + gráficos
  */
 
-const EXCEL_PATH = "./data/reporte.xlsx";
+/**
+ * IMPORTANTÍSIMO (GitHub Pages):
+ * Si tu repo se llama "reporte-financiero", la página vive en:
+ * https://calidadecosanplagas.github.io/reporte-financiero/
+ *
+ * Entonces los assets deben resolverse relativo a esa base.
+ * Esto arma la ruta correcta aunque cambies de dominio/ruta.
+ */
+const BASE_PATH = window.location.pathname.endsWith("/")
+  ? window.location.pathname
+  : window.location.pathname + "/";
 
+const EXCEL_URL = `${BASE_PATH}data/reporte.xlsx`; // <- carpeta data en el repo
+// Si tu Excel está con otro nombre, cámbialo aquí.
 
 let state = {
   unicos: [],       // [{mes, venta, abono, diferencia}]
@@ -14,27 +26,19 @@ let state = {
   pageSize: 25,
   query: "",
   sort: "nombre",
-  charts: {
-    c1: null,
-    c2: null,
-    c3: null,
-  }
+  charts: { c1: null, c2: null, c3: null }
 };
 
 const el = (id) => document.getElementById(id);
 
 function toNumberCLP(value) {
-  // Convierte cosas tipo "$", "", null -> 0
-  // Convierte "1.234.567" o "1234567" o "$ 123.456" -> 1234567
   if (value === null || value === undefined) return 0;
   if (typeof value === "number") return isFinite(value) ? value : 0;
 
   let s = String(value).trim();
   if (!s || s === "$") return 0;
 
-  // Limpia símbolos y separadores
   s = s.replace(/\$/g, "").replace(/\s+/g, "");
-  // elimina puntos de miles y cambia coma decimal si apareciera
   s = s.replace(/\./g, "").replace(/,/g, ".");
   const n = Number(s);
   return isFinite(n) ? n : 0;
@@ -70,9 +74,6 @@ function addRow(tid, cells) {
 }
 
 function detectSheets(workbook) {
-  // Busca:
-  // - Hoja de "Detalle clientes" por encabezado "Nombre Cliente" + meses + "Total"
-  // - Hoja de "Visitas únicas" por encabezado "Nombre" o "Mes" + "Venta" + "Abono" + "Diferencia"
   let detalleSheetName = null;
   let unicosSheetName = null;
 
@@ -81,7 +82,6 @@ function detectSheets(workbook) {
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
     if (!rows || rows.length === 0) continue;
 
-    // Busca encabezados en primeras 5 filas
     const headCandidates = rows.slice(0, 5).map(r => r.map(x => String(x).trim()));
 
     const hasNombreCliente = headCandidates.some(r => r.includes("Nombre Cliente"));
@@ -94,7 +94,6 @@ function detectSheets(workbook) {
       continue;
     }
 
-    // Unicos: puede venir como "Nombre" o "Mes" en primera columna
     const hasVenta = headCandidates.some(r => r.includes("Venta"));
     const hasAbono = headCandidates.some(r => r.includes("Abono"));
     const hasNombreOrMes = headCandidates.some(r => r.includes("Nombre") || r.includes("Mes"));
@@ -112,7 +111,6 @@ function parseUnicos(ws) {
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
   if (!rows || rows.length === 0) return [];
 
-  // Encuentra fila header
   let headerRowIndex = -1;
   for (let i = 0; i < Math.min(10, rows.length); i++) {
     const r = rows[i].map(x => String(x).trim());
@@ -148,7 +146,6 @@ function parseDetalleClientes(ws) {
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
   if (!rows || rows.length === 0) return [];
 
-  // header
   let headerRowIndex = -1;
   for (let i = 0; i < Math.min(10, rows.length); i++) {
     const r = rows[i].map(x => String(x).trim());
@@ -172,7 +169,6 @@ function parseDetalleClientes(ws) {
   const out = [];
   for (let i = headerRowIndex + 1; i < rows.length; i++) {
     const r = rows[i];
-
     const nombre = String(r[idxNombre] ?? "").trim();
     if (!nombre) continue;
 
@@ -193,18 +189,14 @@ function parseDetalleClientes(ws) {
 }
 
 function computeKPIs(unicos, clientes) {
-  // Totales del año (puedes cambiar a clientes si prefieres)
   const ventaTotal = unicos.reduce((a, x) => a + x.venta, 0);
   const abonoTotal = unicos.reduce((a, x) => a + x.abono, 0);
   const deudaTotal = unicos.reduce((a, x) => a + x.diferencia, 0);
 
-  // Conteo real de clientes (NO el slice)
-  const totalClientes = clientes.length;
-
   setText("kpiVentaTotal", formatCLP(ventaTotal));
   setText("kpiAbonoTotal", formatCLP(abonoTotal));
   setText("kpiDeudaTotal", formatCLP(deudaTotal));
-  setText("kpiClientes", String(totalClientes));
+  setText("kpiClientes", String(clientes.length)); // conteo real
 }
 
 function renderUnicosTable(unicos) {
@@ -222,18 +214,16 @@ function renderUnicosTable(unicos) {
 function applyFiltersAndSort(clientes) {
   let out = [...clientes];
 
-  // buscar
   const q = state.query.trim().toLowerCase();
   if (q) out = out.filter(c => c.nombre.toLowerCase().includes(q));
 
-  // ordenar
   switch (state.sort) {
     case "total_desc":
       out.sort((a,b) => b.total - a.total); break;
     case "abono_desc":
       out.sort((a,b) => b.abono - a.abono); break;
     case "diferencia_asc":
-      out.sort((a,b) => a.diferencia - b.diferencia); break; // más negativo primero
+      out.sort((a,b) => a.diferencia - b.diferencia); break;
     default:
       out.sort((a,b) => a.nombre.localeCompare(b.nombre, "es"));
   }
@@ -245,10 +235,8 @@ function renderClientesTable(clientes) {
   clearTable("tablaClientes");
 
   const filtered = applyFiltersAndSort(clientes);
-
   const totalPages = Math.max(1, Math.ceil(filtered.length / state.pageSize));
-  if (state.page > totalPages) state.page = totalPages;
-  if (state.page < 1) state.page = 1;
+  state.page = Math.min(Math.max(state.page, 1), totalPages);
 
   const start = (state.page - 1) * state.pageSize;
   const pageRows = filtered.slice(start, start + state.pageSize);
@@ -293,10 +281,7 @@ function renderCharts(unicos, clientes) {
           { label: "Abono", data: abonos },
         ]
       },
-      options: {
-        responsive: true,
-        plugins: { legend: { position: "bottom" } }
-      }
+      options: { responsive: true, plugins: { legend: { position: "bottom" } } }
     });
   }
 
@@ -304,20 +289,14 @@ function renderCharts(unicos, clientes) {
   if (ctx2) {
     state.charts.c2 = new Chart(ctx2, {
       type: "bar",
-      data: {
-        labels: labelsUnicos,
-        datasets: [{ label: "Diferencia", data: difs }]
-      },
-      options: {
-        responsive: true,
-        plugins: { legend: { position: "bottom" } }
-      }
+      data: { labels: labelsUnicos, datasets: [{ label: "Diferencia", data: difs }] },
+      options: { responsive: true, plugins: { legend: { position: "bottom" } } }
     });
   }
 
   const topDeuda = [...clientes]
     .filter(c => typeof c.diferencia === "number")
-    .sort((a,b) => a.diferencia - b.diferencia) // más negativo primero
+    .sort((a,b) => a.diferencia - b.diferencia)
     .slice(0, 10);
 
   const labelsTop = topDeuda.map(x => x.nombre);
@@ -327,10 +306,7 @@ function renderCharts(unicos, clientes) {
   if (ctx3) {
     state.charts.c3 = new Chart(ctx3, {
       type: "bar",
-      data: {
-        labels: labelsTop,
-        datasets: [{ label: "Diferencia (Deuda)", data: valoresTop }]
-      },
+      data: { labels: labelsTop, datasets: [{ label: "Diferencia (Deuda)", data: valoresTop }] },
       options: {
         responsive: true,
         plugins: { legend: { position: "bottom" } },
@@ -341,28 +317,25 @@ function renderCharts(unicos, clientes) {
 }
 
 async function loadExcel() {
-  // Carga binaria del excel
   const res = await fetch(EXCEL_URL, { cache: "no-store" });
   if (!res.ok) {
-    throw new Error(`No se pudo cargar ${EXCEL_URL}. ¿Está en /data y se llama reporte.xlsx?`);
+    throw new Error(`No se pudo cargar ${EXCEL_URL}. Verifica que exista en el repo: /data/reporte.xlsx`);
   }
+
   const ab = await res.arrayBuffer();
   const wb = XLSX.read(ab, { type: "array" });
 
   const { detalleSheetName, unicosSheetName } = detectSheets(wb);
 
   if (!detalleSheetName) {
-    throw new Error("No encontré la hoja de Detalle Clientes. Debe tener encabezado: 'Nombre Cliente', meses, 'Total', 'Abono', 'Diferencia'.");
+    throw new Error("No encontré la hoja de Detalle Clientes. Encabezado requerido: 'Nombre Cliente', meses, 'Total', 'Abono', 'Diferencia'.");
   }
   if (!unicosSheetName) {
-    throw new Error("No encontré la hoja de Visitas Únicas. Debe tener encabezado: 'Mes' o 'Nombre' + 'Venta' + 'Abono' + 'Diferencia'.");
+    throw new Error("No encontré la hoja de Visitas Únicas. Encabezado requerido: 'Mes' o 'Nombre' + 'Venta' + 'Abono' + 'Diferencia'.");
   }
 
-  const wsDetalle = wb.Sheets[detalleSheetName];
-  const wsUnicos = wb.Sheets[unicosSheetName];
-
-  const clientes = parseDetalleClientes(wsDetalle);
-  const unicos = parseUnicos(wsUnicos);
+  const clientes = parseDetalleClientes(wb.Sheets[detalleSheetName]);
+  const unicos = parseUnicos(wb.Sheets[unicosSheetName]);
 
   return { clientes, unicos };
 }
