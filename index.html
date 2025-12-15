@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Reporte Financiero Clientes</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="wrap">
+  <h1>Reporte Financiero</h1>
+  <p>Valores en CLP · Fuente interna</p>
+</header>
+
+<main class="wrap">
+
+  <!-- KPIs -->
+  <section class="kpis">
+    <div class="card">
+      <span class="label">Ventas Totales</span>
+      <span class="value" id="kpiVentas">$0</span>
+    </div>
+    <div class="card">
+      <span class="label">Abonos Totales</span>
+      <span class="value" id="kpiAbonos">$0</span>
+    </div>
+    <div class="card">
+      <span class="label">Deuda Total</span>
+      <span class="value deuda" id="kpiDeuda">$0</span>
+    </div>
+    <div class="card">
+      <span class="label">Clientes</span>
+      <span class="value" id="kpiClientes">0</span>
+    </div>
+  </section>
+
+  <!-- Resumen mensual visitas únicas -->
+  <section class="card">
+    <h2>Resumen Mensual – Visitas Únicas</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Mes</th>
+          <th>Venta</th>
+          <th>Abono</th>
+          <th>Diferencia</th>
+        </tr>
+      </thead>
+      <tbody id="tablaMensual"></tbody>
+    </table>
+  </section>
+
+  <!-- Detalle clientes -->
+  <section class="card">
+    <h2>Detalle por Cliente</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Cliente</th>
+          <th>Total</th>
+          <th>Abono</th>
+          <th>Diferencia</th>
+        </tr>
+      </thead>
+      <tbody id="tablaClientes"></tbody>
+    </table>
+  </section>
+
+</main>
+
+<script src="script.js"></script>
+</body>
+</html>
