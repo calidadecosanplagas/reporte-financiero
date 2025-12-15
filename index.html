@@ -1,74 +1,132 @@
 <!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8">
-  <title>Reporte Financiero Clientes</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="styles.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Reporte Financiero</title>
+  <link rel="stylesheet" href="styles.css" />
 </head>
+
 <body>
+  <main class="container">
+    <header class="header">
+      <h1>Reporte Financiero</h1>
+      <p class="muted">Valores en CLP · Fuente: Excel interno (XLSX)</p>
+      <div class="toolbar">
+        <button id="btnReload" class="btn">Recargar datos</button>
+        <button id="btnPrint" class="btn btn-ghost">Imprimir / PDF</button>
+      </div>
+    </header>
 
-<header class="wrap">
-  <h1>Reporte Financiero</h1>
-  <p>Valores en CLP · Fuente interna</p>
-</header>
+    <section class="kpis">
+      <div class="kpi">
+        <div class="kpi-label">Venta total</div>
+        <div class="kpi-value" id="kpiVentaTotal">$0</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Abono total</div>
+        <div class="kpi-value" id="kpiAbonoTotal">$0</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Deuda total</div>
+        <div class="kpi-value kpi-negative" id="kpiDeudaTotal">$0</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Clientes</div>
+        <div class="kpi-value" id="kpiClientes">0</div>
+      </div>
+    </section>
 
-<main class="wrap">
+    <section class="card">
+      <div class="card-title">
+        <h2>Resumen Mensual · Visitas Únicas</h2>
+      </div>
 
-  <!-- KPIs -->
-  <section class="kpis">
-    <div class="card">
-      <span class="label">Ventas Totales</span>
-      <span class="value" id="kpiVentas">$0</span>
-    </div>
-    <div class="card">
-      <span class="label">Abonos Totales</span>
-      <span class="value" id="kpiAbonos">$0</span>
-    </div>
-    <div class="card">
-      <span class="label">Deuda Total</span>
-      <span class="value deuda" id="kpiDeuda">$0</span>
-    </div>
-    <div class="card">
-      <span class="label">Clientes</span>
-      <span class="value" id="kpiClientes">0</span>
-    </div>
-  </section>
+      <div class="table-wrap">
+        <table class="table" id="tablaUnicos">
+          <thead>
+            <tr>
+              <th>Mes</th>
+              <th class="num">Venta</th>
+              <th class="num">Abono</th>
+              <th class="num">Diferencia</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
 
-  <!-- Resumen mensual visitas únicas -->
-  <section class="card">
-    <h2>Resumen Mensual – Visitas Únicas</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Mes</th>
-          <th>Venta</th>
-          <th>Abono</th>
-          <th>Diferencia</th>
-        </tr>
-      </thead>
-      <tbody id="tablaMensual"></tbody>
-    </table>
-  </section>
+    <section class="card">
+      <div class="card-title">
+        <h2>Detalle por Cliente</h2>
 
-  <!-- Detalle clientes -->
-  <section class="card">
-    <h2>Detalle por Cliente</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Cliente</th>
-          <th>Total</th>
-          <th>Abono</th>
-          <th>Diferencia</th>
-        </tr>
-      </thead>
-      <tbody id="tablaClientes"></tbody>
-    </table>
-  </section>
+        <div class="search">
+          <input id="searchCliente" type="search" placeholder="Buscar cliente..." />
+          <select id="sortBy">
+            <option value="nombre">Ordenar: Nombre</option>
+            <option value="total_desc">Ordenar: Total ↓</option>
+            <option value="abono_desc">Ordenar: Abono ↓</option>
+            <option value="diferencia_asc">Ordenar: Deuda (más negativa) ↑</option>
+          </select>
+        </div>
+      </div>
 
-</main>
+      <div class="table-wrap">
+        <table class="table" id="tablaClientes">
+          <thead>
+            <tr>
+              <th>Cliente</th>
+              <th class="num">Total</th>
+              <th class="num">Abono</th>
+              <th class="num">Diferencia</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
 
-<script src="script.js"></script>
+      <div class="pager">
+        <button id="prevPage" class="btn btn-ghost">◀</button>
+        <div class="muted" id="pageInfo">Página 1</div>
+        <button id="nextPage" class="btn btn-ghost">▶</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-title">
+        <h2>Gráficos</h2>
+      </div>
+
+      <div class="charts">
+        <div class="chart-box">
+          <h3>Visitas Únicas · Venta vs Abono</h3>
+          <canvas id="chartUnicosVentaAbono"></canvas>
+        </div>
+
+        <div class="chart-box">
+          <h3>Visitas Únicas · Diferencia</h3>
+          <canvas id="chartUnicosDiferencia"></canvas>
+        </div>
+
+        <div class="chart-box">
+          <h3>Top 10 Clientes con Mayor Deuda</h3>
+          <canvas id="chartTopDeuda"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer muted">
+      <span>Tip: si actualizas el Excel, reemplaza <code>/data/reporte.xlsx</code> y recarga.</span>
+    </footer>
+  </main>
+
+  <!-- SheetJS (leer Excel .xlsx en el navegador) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <script src="script.js"></script>
 </body>
 </html>
