@@ -1,121 +1,421 @@
-/*************************************************
- * UTILIDADES
- *************************************************/
-const CLP = (n) => "$" + Math.trunc(n).toLocaleString("es-CL");
+/**
+ * Reporte financiero - lee /data/reporte.xlsx directamente (sin CSV)
+ * - Detecta hojas por encabezados
+ * - Renderiza KPIs + tablas + paginación + búsqueda + gráficos
+ */
 
-function toNumber(v) {
-  if (v === undefined || v === null) return 0;
-  const s = String(v).trim();
-  if (s === "" || s === "$") return 0;
-  const clean = s.replace(/\./g, "").replace(/,/g, "");
-  const n = Number(clean);
-  return Number.isFinite(n) ? n : 0;
+const EXCEL_URL = "data/reporte.xlsx";
+
+let state = {
+  unicos: [],       // [{mes, venta, abono, diferencia}]
+  clientes: [],     // [{nombre,total,abono,diferencia, meses:{...}}]
+  page: 1,
+  pageSize: 25,
+  query: "",
+  sort: "nombre",
+  charts: {
+    c1: null,
+    c2: null,
+    c3: null,
+  }
+};
+
+const el = (id) => document.getElementById(id);
+
+function toNumberCLP(value) {
+  // Convierte cosas tipo "$", "", null -> 0
+  // Convierte "1.234.567" o "1234567" o "$ 123.456" -> 1234567
+  if (value === null || value === undefined) return 0;
+  if (typeof value === "number") return isFinite(value) ? value : 0;
+
+  let s = String(value).trim();
+  if (!s || s === "$") return 0;
+
+  // Limpia símbolos y separadores
+  s = s.replace(/\$/g, "").replace(/\s+/g, "");
+  // elimina puntos de miles y cambia coma decimal si apareciera
+  s = s.replace(/\./g, "").replace(/,/g, ".");
+  const n = Number(s);
+  return isFinite(n) ? n : 0;
 }
 
-/*************************************************
- * RESUMEN MENSUAL – CLIENTES VISITA ÚNICA
- *************************************************/
-const resumenMensual = [
-  { mes: "Enero", venta: 3842560, abono: 2807600 },
-  { mes: "Febrero", venta: 2658900, abono: 1279200 },
-  { mes: "Marzo", venta: 2696560, abono: 2536568 },
-  { mes: "Abril", venta: 1908750, abono: 1645950 },
-  { mes: "Mayo", venta: 1541200, abono: 1248400 },
-  { mes: "Junio - Julio", venta: 1586940, abono: 1456940 },
-  { mes: "Agosto - Septiembre - Octubre", venta: 3240300, abono: 2813200 },
-  { mes: "Noviembre", venta: 2680650, abono: 1308500 },
-  { mes: "Diciembre", venta: 537100, abono: 90000 }
-];
+function formatCLP(n) {
+  const sign = n < 0 ? "-" : "";
+  const abs = Math.abs(Math.round(n));
+  return `${sign}$${abs.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}`;
+}
 
-/*************************************************
- * DETALLE CLIENTES (PEGADO TAL CUAL DESDE EXCEL)
- *************************************************/
-const DETALLE_CLIENTES_TSV = `
-Nombre Cliente	Enero	Febrero	Marzo	Abril	Mayo	Junio	Julio	Agosto	Septiembre	Octubre	Noviembre	Diciembre	Total	Abono	Diferencia
-Afp Plan Vital	59423	0	0	60439	0	0	60735	0	0	61140	0	0	241737	241742	5
-EL COMINO	681288	681471	687585	958907	694017	695092	696385	694053	700119	700119	910141	0	8099177	7189036	-910141
-AGRÍCOLA PRAVIA	91361	91838	92520	92984	93259	93430	93282	93596	93975	94206	94352		1024803	1024803	0
-AGRÍCOLA PRIMOS Z	95966	96317	97071	97504	97839	98017	98162	97936	98675	98687	99069	0	1075243	0	-1075243
-SOCIEDAD AGRICOLA DON ENRIQUE	0	0	0	55669	0	0	0	55963	0	0	0	0	111632	0	-111632
-COMBUSTIBLES PEUMO	0	0	$	55605	0	0	0	56174	0	0	0	0	111779	0	-111779
-IVAN OLEA GARCIA	0	54966	$		0	55995	0	0	0	56429	0	0	167390	0	-167390
-AGRICOLA SANTA ISABEL SPA	0	374850	$	226100	0	226100	0	226100	0	226100	0	0	1279250	1053150	-226100
-AGROCRECES	205734	205831	207823	208589	209657	210037	210347	209680	211201	211445	212127	212292	2514763	1667698	-847065
-AL TIRO PIZZA	59381	59555	60069	60239	60559	60661	60774	60609	61066	61084	84654	61305	749956	542913	-207043
-APÍCOLA SAN VICENTE	73093	73556	74016	74375	74602	74739	74655	74726	75181	75316	75482		819741	295040	-524701
-`.trim();
+function setText(id, text) {
+  const node = el(id);
+  if (node) node.textContent = text;
+}
 
-/*************************************************
- * PARSER TSV → OBJETOS
- *************************************************/
-function parseDetalle(tsv) {
-  const lines = tsv.split(/\r?\n/).filter(l => l.trim() !== "");
-  const header = lines[0].split("\t");
+function clearTable(tid) {
+  const tb = el(tid)?.querySelector("tbody");
+  if (tb) tb.innerHTML = "";
+}
+
+function addRow(tid, cells) {
+  const tb = el(tid)?.querySelector("tbody");
+  if (!tb) return;
+  const tr = document.createElement("tr");
+  cells.forEach((c) => {
+    const td = document.createElement("td");
+    if (c?.className) td.className = c.className;
+    td.textContent = c?.text ?? "";
+    tr.appendChild(td);
+  });
+  tb.appendChild(tr);
+}
+
+function detectSheets(workbook) {
+  // Busca:
+  // - Hoja de "Detalle clientes" por encabezado "Nombre Cliente" + meses + "Total"
+  // - Hoja de "Visitas únicas" por encabezado "Nombre" o "Mes" + "Venta" + "Abono" + "Diferencia"
+  let detalleSheetName = null;
+  let unicosSheetName = null;
+
+  for (const name of workbook.SheetNames) {
+    const ws = workbook.Sheets[name];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+    if (!rows || rows.length === 0) continue;
+
+    // Busca encabezados en primeras 5 filas
+    const headCandidates = rows.slice(0, 5).map(r => r.map(x => String(x).trim()));
+
+    const hasNombreCliente = headCandidates.some(r => r.includes("Nombre Cliente"));
+    const hasTotal = headCandidates.some(r => r.includes("Total"));
+    const hasEnero = headCandidates.some(r => r.includes("Enero"));
+    const hasDiferencia = headCandidates.some(r => r.includes("Diferencia"));
+
+    if (hasNombreCliente && hasTotal && hasEnero && hasDiferencia) {
+      detalleSheetName = name;
+      continue;
+    }
+
+    // Unicos: puede venir como "Nombre" o "Mes" en primera columna
+    const hasVenta = headCandidates.some(r => r.includes("Venta"));
+    const hasAbono = headCandidates.some(r => r.includes("Abono"));
+    const hasNombreOrMes = headCandidates.some(r => r.includes("Nombre") || r.includes("Mes"));
+
+    if (hasNombreOrMes && hasVenta && hasAbono && hasDiferencia) {
+      unicosSheetName = name;
+      continue;
+    }
+  }
+
+  return { detalleSheetName, unicosSheetName };
+}
+
+function parseUnicos(ws) {
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+  if (!rows || rows.length === 0) return [];
+
+  // Encuentra fila header
+  let headerRowIndex = -1;
+  for (let i = 0; i < Math.min(10, rows.length); i++) {
+    const r = rows[i].map(x => String(x).trim());
+    if ((r.includes("Nombre") || r.includes("Mes")) && r.includes("Venta") && r.includes("Abono")) {
+      headerRowIndex = i;
+      break;
+    }
+  }
+  if (headerRowIndex === -1) return [];
+
+  const header = rows[headerRowIndex].map(x => String(x).trim());
+  const idxMes = header.indexOf("Mes") !== -1 ? header.indexOf("Mes") : header.indexOf("Nombre");
+  const idxVenta = header.indexOf("Venta");
+  const idxAbono = header.indexOf("Abono");
+  const idxDif = header.indexOf("Diferencia");
+
+  const out = [];
+  for (let i = headerRowIndex + 1; i < rows.length; i++) {
+    const r = rows[i];
+    const mes = String(r[idxMes] ?? "").trim();
+    if (!mes) continue;
+
+    const venta = toNumberCLP(r[idxVenta]);
+    const abono = toNumberCLP(r[idxAbono]);
+    const diferencia = (idxDif >= 0) ? toNumberCLP(r[idxDif]) : (abono - venta);
+
+    out.push({ mes, venta, abono, diferencia });
+  }
+  return out;
+}
+
+function parseDetalleClientes(ws) {
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+  if (!rows || rows.length === 0) return [];
+
+  // header
+  let headerRowIndex = -1;
+  for (let i = 0; i < Math.min(10, rows.length); i++) {
+    const r = rows[i].map(x => String(x).trim());
+    if (r.includes("Nombre Cliente") && r.includes("Total") && r.includes("Abono") && r.includes("Diferencia")) {
+      headerRowIndex = i;
+      break;
+    }
+  }
+  if (headerRowIndex === -1) return [];
+
+  const header = rows[headerRowIndex].map(x => String(x).trim());
 
   const idxNombre = header.indexOf("Nombre Cliente");
   const idxTotal = header.indexOf("Total");
   const idxAbono = header.indexOf("Abono");
   const idxDif = header.indexOf("Diferencia");
 
-  return lines.slice(1).map(line => {
-    const cols = line.split("\t");
-    const total = toNumber(cols[idxTotal]);
-    const abono = toNumber(cols[idxAbono]);
-    const diferencia = toNumber(cols[idxDif]);
+  const meses = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+  const idxMeses = Object.fromEntries(meses.map(m => [m, header.indexOf(m)]));
 
-    return {
-      nombre: (cols[idxNombre] || "").trim(),
-      total,
-      abono,
-      diferencia
-    };
-  }).filter(r => r.nombre);
+  const out = [];
+  for (let i = headerRowIndex + 1; i < rows.length; i++) {
+    const r = rows[i];
+
+    const nombre = String(r[idxNombre] ?? "").trim();
+    if (!nombre) continue;
+
+    const total = toNumberCLP(r[idxTotal]);
+    const abono = toNumberCLP(r[idxAbono]);
+    const diferencia = toNumberCLP(r[idxDif]);
+
+    const mesesObj = {};
+    for (const m of meses) {
+      const idx = idxMeses[m];
+      mesesObj[m] = idx >= 0 ? toNumberCLP(r[idx]) : 0;
+    }
+
+    out.push({ nombre, total, abono, diferencia, meses: mesesObj });
+  }
+
+  return out;
 }
 
-const clientes = parseDetalle(DETALLE_CLIENTES_TSV);
+function computeKPIs(unicos, clientes) {
+  // Totales del año (puedes cambiar a clientes si prefieres)
+  const ventaTotal = unicos.reduce((a, x) => a + x.venta, 0);
+  const abonoTotal = unicos.reduce((a, x) => a + x.abono, 0);
+  const deudaTotal = unicos.reduce((a, x) => a + x.diferencia, 0);
 
-/*************************************************
- * RENDER RESUMEN MENSUAL
- *************************************************/
-const tablaMensual = document.getElementById("tablaMensual");
-resumenMensual.forEach(r => {
-  const tr = document.createElement("tr");
-  const diff = r.venta - r.abono;
-  tr.innerHTML = `
-    <td>${r.mes}</td>
-    <td class="num">${CLP(r.venta)}</td>
-    <td class="num">${CLP(r.abono)}</td>
-    <td class="num deuda">${CLP(diff)}</td>
-  `;
-  tablaMensual.appendChild(tr);
-});
+  // Conteo real de clientes (NO el slice)
+  const totalClientes = clientes.length;
 
-/*************************************************
- * RENDER CLIENTES + KPIs
- *************************************************/
-let totalVentas = 0;
-let totalAbonos = 0;
+  setText("kpiVentaTotal", formatCLP(ventaTotal));
+  setText("kpiAbonoTotal", formatCLP(abonoTotal));
+  setText("kpiDeudaTotal", formatCLP(deudaTotal));
+  setText("kpiClientes", String(totalClientes));
+}
 
-const tablaClientes = document.getElementById("tablaClientes");
+function renderUnicosTable(unicos) {
+  clearTable("tablaUnicos");
+  for (const x of unicos) {
+    addRow("tablaUnicos", [
+      { text: x.mes },
+      { text: formatCLP(x.venta), className: "num" },
+      { text: formatCLP(x.abono), className: "num" },
+      { text: formatCLP(x.diferencia), className: `num ${x.diferencia < 0 ? "neg" : "pos"}` },
+    ]);
+  }
+}
 
-clientes.forEach(c => {
-  totalVentas += c.total;
-  totalAbonos += c.abono;
+function applyFiltersAndSort(clientes) {
+  let out = [...clientes];
 
-  const tr = document.createElement("tr");
-  tr.innerHTML = `
-    <td>${c.nombre}</td>
-    <td class="num">${CLP(c.total)}</td>
-    <td class="num">${CLP(c.abono)}</td>
-    <td class="num deuda">${CLP(c.diferencia)}</td>
-  `;
-  tablaClientes.appendChild(tr);
-});
+  // buscar
+  const q = state.query.trim().toLowerCase();
+  if (q) out = out.filter(c => c.nombre.toLowerCase().includes(q));
 
-/*************************************************
- * KPIs
- *************************************************/
-document.getElementById("kpiVentas").textContent = CLP(totalVentas);
-document.getElementById("kpiAbonos").textContent = CLP(totalAbonos);
-document.getElementById("kpiDeuda").textContent = CLP(totalVentas - totalAbonos);
-document.getElementById("kpiClientes").textContent = clientes.length;
+  // ordenar
+  switch (state.sort) {
+    case "total_desc":
+      out.sort((a,b) => b.total - a.total); break;
+    case "abono_desc":
+      out.sort((a,b) => b.abono - a.abono); break;
+    case "diferencia_asc":
+      out.sort((a,b) => a.diferencia - b.diferencia); break; // más negativo primero
+    default:
+      out.sort((a,b) => a.nombre.localeCompare(b.nombre, "es"));
+  }
+
+  return out;
+}
+
+function renderClientesTable(clientes) {
+  clearTable("tablaClientes");
+
+  const filtered = applyFiltersAndSort(clientes);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / state.pageSize));
+  if (state.page > totalPages) state.page = totalPages;
+  if (state.page < 1) state.page = 1;
+
+  const start = (state.page - 1) * state.pageSize;
+  const pageRows = filtered.slice(start, start + state.pageSize);
+
+  for (const c of pageRows) {
+    addRow("tablaClientes", [
+      { text: c.nombre },
+      { text: formatCLP(c.total), className: "num" },
+      { text: formatCLP(c.abono), className: "num" },
+      { text: formatCLP(c.diferencia), className: `num ${c.diferencia < 0 ? "neg" : "pos"}` },
+    ]);
+  }
+
+  setText("pageInfo", `Página ${state.page} de ${totalPages} · Mostrando ${pageRows.length} de ${filtered.length}`);
+}
+
+function destroyCharts() {
+  for (const k of ["c1","c2","c3"]) {
+    if (state.charts[k]) {
+      state.charts[k].destroy();
+      state.charts[k] = null;
+    }
+  }
+}
+
+function renderCharts(unicos, clientes) {
+  destroyCharts();
+
+  const labelsUnicos = unicos.map(x => x.mes);
+  const ventas = unicos.map(x => x.venta);
+  const abonos = unicos.map(x => x.abono);
+  const difs = unicos.map(x => x.diferencia);
+
+  const ctx1 = el("chartUnicosVentaAbono");
+  if (ctx1) {
+    state.charts.c1 = new Chart(ctx1, {
+      type: "line",
+      data: {
+        labels: labelsUnicos,
+        datasets: [
+          { label: "Venta", data: ventas },
+          { label: "Abono", data: abonos },
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { position: "bottom" } }
+      }
+    });
+  }
+
+  const ctx2 = el("chartUnicosDiferencia");
+  if (ctx2) {
+    state.charts.c2 = new Chart(ctx2, {
+      type: "bar",
+      data: {
+        labels: labelsUnicos,
+        datasets: [{ label: "Diferencia", data: difs }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { position: "bottom" } }
+      }
+    });
+  }
+
+  const topDeuda = [...clientes]
+    .filter(c => typeof c.diferencia === "number")
+    .sort((a,b) => a.diferencia - b.diferencia) // más negativo primero
+    .slice(0, 10);
+
+  const labelsTop = topDeuda.map(x => x.nombre);
+  const valoresTop = topDeuda.map(x => x.diferencia);
+
+  const ctx3 = el("chartTopDeuda");
+  if (ctx3) {
+    state.charts.c3 = new Chart(ctx3, {
+      type: "bar",
+      data: {
+        labels: labelsTop,
+        datasets: [{ label: "Diferencia (Deuda)", data: valoresTop }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { position: "bottom" } },
+        scales: { x: { ticks: { autoSkip: false, maxRotation: 0 } } }
+      }
+    });
+  }
+}
+
+async function loadExcel() {
+  // Carga binaria del excel
+  const res = await fetch(EXCEL_URL, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`No se pudo cargar ${EXCEL_URL}. ¿Está en /data y se llama reporte.xlsx?`);
+  }
+  const ab = await res.arrayBuffer();
+  const wb = XLSX.read(ab, { type: "array" });
+
+  const { detalleSheetName, unicosSheetName } = detectSheets(wb);
+
+  if (!detalleSheetName) {
+    throw new Error("No encontré la hoja de Detalle Clientes. Debe tener encabezado: 'Nombre Cliente', meses, 'Total', 'Abono', 'Diferencia'.");
+  }
+  if (!unicosSheetName) {
+    throw new Error("No encontré la hoja de Visitas Únicas. Debe tener encabezado: 'Mes' o 'Nombre' + 'Venta' + 'Abono' + 'Diferencia'.");
+  }
+
+  const wsDetalle = wb.Sheets[detalleSheetName];
+  const wsUnicos = wb.Sheets[unicosSheetName];
+
+  const clientes = parseDetalleClientes(wsDetalle);
+  const unicos = parseUnicos(wsUnicos);
+
+  return { clientes, unicos };
+}
+
+async function init() {
+  try {
+    setText("kpiClientes", "…");
+    setText("kpiVentaTotal", "…");
+    setText("kpiAbonoTotal", "…");
+    setText("kpiDeudaTotal", "…");
+
+    const { clientes, unicos } = await loadExcel();
+
+    state.clientes = clientes;
+    state.unicos = unicos;
+    state.page = 1;
+
+    computeKPIs(state.unicos, state.clientes);
+    renderUnicosTable(state.unicos);
+    renderClientesTable(state.clientes);
+    renderCharts(state.unicos, state.clientes);
+
+  } catch (err) {
+    console.error(err);
+    alert(err.message || String(err));
+  }
+}
+
+function wireUI() {
+  el("btnReload")?.addEventListener("click", init);
+  el("btnPrint")?.addEventListener("click", () => window.print());
+
+  el("searchCliente")?.addEventListener("input", (e) => {
+    state.query = e.target.value || "";
+    state.page = 1;
+    renderClientesTable(state.clientes);
+  });
+
+  el("sortBy")?.addEventListener("change", (e) => {
+    state.sort = e.target.value;
+    state.page = 1;
+    renderClientesTable(state.clientes);
+  });
+
+  el("prevPage")?.addEventListener("click", () => {
+    state.page -= 1;
+    renderClientesTable(state.clientes);
+  });
+
+  el("nextPage")?.addEventListener("click", () => {
+    state.page += 1;
+    renderClientesTable(state.clientes);
+  });
+}
+
+wireUI();
+init();
