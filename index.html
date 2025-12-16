@@ -4,134 +4,289 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Reporte Financiero</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="./styles.css" />
+
+  <!-- XLSX -->
+  <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <!-- Chart.js -->
+  <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <!-- App -->
+  <script defer src="./script.js"></script>
 </head>
 
 <body>
-  <main class="container">
-    <header class="header">
-      <h1>Reporte Financiero</h1>
-      <p class="subtitle">
-        KPIs calculados desde <strong>Detalle Clientes (Total anual real)</strong>.
-        Gráficos mensuales desde <strong>Visitas Únicas</strong>.
-      </p>
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="title">
+        <h1>Reporte<br>Financiero</h1>
+        <div class="subtitle">
+          KPIs anuales desde <b>Detalle Clientes</b> + KPIs desde <b>Visitas Únicas</b>. Filtros, export, gráficos y detalle.
+        </div>
+      </div>
+    </div>
 
-      <p class="muted">Valores en CLP · Fuente: Excel interno (XLSX)</p>
-      <div class="toolbar">
+    <div class="topbar-right">
+      <div class="meta">
+        Valores en CLP · Fuente: Excel interno (XLSX)<br>
+        <small>Tip: si actualizas el Excel, reemplaza <code>/data/reporte.xlsx</code> y recarga.</small>
+      </div>
+
+      <div class="actions">
         <button id="btnReload" class="btn">Recargar datos</button>
-        <button id="btnPrint" class="btn btn-ghost">Imprimir / PDF</button>
+        <button id="btnPrint" class="btn">Imprimir / PDF</button>
+        <button id="btnExportCSV" class="btn btn-ghost">Exportar (CSV)</button>
       </div>
-    </header>
+    </div>
+  </header>
 
-    <section class="kpis">
-      <div class="kpi">
-        <div class="kpi-label">Venta total</div>
-        <div class="kpi-value" id="kpiVentaTotal">$0</div>
-      </div>
-      <div class="kpi">
-        <div class="kpi-label">Abono total</div>
-        <div class="kpi-value" id="kpiAbonoTotal">$0</div>
-      </div>
-      <div class="kpi">
-        <div class="kpi-label">Deuda total</div>
-        <div class="kpi-value kpi-negative" id="kpiDeudaTotal">$0</div>
-      </div>
-      <div class="kpi">
-        <div class="kpi-label">Clientes</div>
-        <div class="kpi-value" id="kpiClientes">0</div>
-      </div>
-    </section>
+  <!-- KPIs -->
+  <section class="kpis">
+    <div class="kpi">
+      <div class="kpi-label">Venta total anual (Clientes)</div>
+      <div class="kpi-value" id="kpiVentaTotal">…</div>
+      <div class="kpi-hint">% cobrado: <span id="kpiPctCobrado">…</span></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Abono total anual (Clientes)</div>
+      <div class="kpi-value" id="kpiAbonoTotal">…</div>
+      <div class="kpi-hint">Clientes sin deuda: <span id="kpiSinDeuda">…</span></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Deuda total anual (Clientes)</div>
+      <div class="kpi-value neg" id="kpiDeudaTotal">…</div>
+      <div class="kpi-hint">Clientes con deuda: <span id="kpiConDeuda">…</span></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Clientes</div>
+      <div class="kpi-value" id="kpiClientes">…</div>
+      <div class="kpi-hint">Mostrando: <span id="kpiMostrando">…</span></div>
+    </div>
+  </section>
 
-    <section class="card">
-      <div class="card-title">
-        <h2>Resumen Mensual · Visitas Únicas</h2>
+  <!-- KPIs Unicos -->
+  <section class="kpis kpis-secondary">
+    <div class="kpi">
+      <div class="kpi-label">Venta total anual (Visitas Únicas)</div>
+      <div class="kpi-value" id="kpiUnicosVentaTotal">…</div>
+      <div class="kpi-hint">Meses leídos: <span id="kpiUnicosMeses">…</span></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Abono total anual (Visitas Únicas)</div>
+      <div class="kpi-value" id="kpiUnicosAbonoTotal">…</div>
+      <div class="kpi-hint">Coherencia: <span id="kpiCoherencia">…</span></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Diferencia total (Visitas Únicas)</div>
+      <div class="kpi-value" id="kpiUnicosDeudaTotal">…</div>
+      <div class="kpi-hint">Nota: solo mensual</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Comparación venta anual</div>
+      <div class="kpi-value" id="kpiDeltaVentas">…</div>
+      <div class="kpi-hint">Clientes vs Únicos</div>
+    </div>
+  </section>
+
+  <!-- Visitas Unicas -->
+  <section class="card">
+    <div class="card-header">
+      <h2>Resumen Mensual - Visitas Únicas</h2>
+    </div>
+    <div class="table-wrap">
+      <table id="tablaUnicos">
+        <thead>
+          <tr>
+            <th>Mes</th>
+            <th class="num">Venta</th>
+            <th class="num">Abono</th>
+            <th class="num">Diferencia</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Controles Clientes -->
+  <section class="card">
+    <div class="card-header row">
+      <h2>Detalle por Cliente</h2>
+      <div class="controls">
+        <input id="searchCliente" class="input" placeholder="Buscar cliente…" />
+
+        <select id="sortBy" class="select">
+          <option value="nombre">Ordenar: Nombre</option>
+          <option value="total_desc">Ordenar: Total (desc)</option>
+          <option value="abono_desc">Ordenar: Abono (desc)</option>
+          <option value="diferencia_asc">Ordenar: Deuda (más negativa primero)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="filters">
+      <div class="filter">
+        <label>Deuda mínima (CLP)</label>
+        <input id="minDeuda" class="input" placeholder="Ej: 0" />
+      </div>
+      <div class="filter">
+        <label>Deuda máxima (CLP)</label>
+        <input id="maxDeuda" class="input" placeholder="Ej: 1000000" />
+      </div>
+      <div class="filter">
+        <label>Estado</label>
+        <select id="estadoDeuda" class="select">
+          <option value="all">Todos</option>
+          <option value="con_deuda">Con deuda</option>
+          <option value="sin_deuda">Sin deuda</option>
+        </select>
+      </div>
+      <div class="filter">
+        <label>Filas por página</label>
+        <select id="pageSize" class="select">
+          <option value="25">25</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
+      </div>
+      <div class="filter filter-actions">
+        <button id="btnClearFilters" class="btn btn-ghost">Limpiar filtros</button>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table id="tablaClientes">
+        <thead>
+          <tr>
+            <th>Cliente</th>
+            <th class="num">Total</th>
+            <th class="num">Abono</th>
+            <th class="num">Diferencia</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="pager">
+      <button id="prevPage" class="btn btn-ghost">◀</button>
+      <div id="pageInfo" class="page-info">…</div>
+      <button id="nextPage" class="btn btn-ghost">▶</button>
+    </div>
+
+    <div class="hint">
+      Tip: haz click en un cliente para ver el <b>detalle mensual</b>.
+    </div>
+  </section>
+
+  <!-- Top 20 -->
+  <section class="card">
+    <div class="card-header row">
+      <h2>Top 20 Clientes con Mayor Deuda</h2>
+      <div class="controls">
+        <button id="btnExportTopDeuda" class="btn btn-ghost">Exportar Top 20 (CSV)</button>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table id="tablaTopDeuda">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Cliente</th>
+            <th class="num">Total</th>
+            <th class="num">Abono</th>
+            <th class="num">Deuda</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Gráficos -->
+  <section class="card">
+    <div class="card-header">
+      <h2>Gráficos</h2>
+    </div>
+
+    <div class="charts">
+      <div class="chart-card">
+        <div class="chart-title">Visitas Únicas - Venta vs Abono</div>
+        <div class="chart-box"><canvas id="chartUnicosVentaAbono"></canvas></div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-title">Visitas Únicas - Diferencia</div>
+        <div class="chart-box"><canvas id="chartUnicosDiferencia"></canvas></div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-title">Top 10 Clientes con Mayor Deuda</div>
+        <div class="chart-box"><canvas id="chartTopDeuda"></canvas></div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-title">Top 10 Clientes - Venta Anual vs Abono Anual</div>
+        <div class="chart-box"><canvas id="chartTopVentas"></canvas></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Modal detalle cliente -->
+  <div id="modal" class="modal hidden">
+    <div class="modal-backdrop" id="modalClose"></div>
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title" id="modalTitle">Cliente</div>
+          <div class="modal-sub" id="modalSub">…</div>
+        </div>
+        <button class="btn btn-ghost" id="modalCloseBtn">Cerrar</button>
+      </div>
+
+      <div class="modal-grid">
+        <div class="modal-kpis">
+          <div class="mini">
+            <div class="mini-label">Total</div>
+            <div class="mini-value" id="mTotal">…</div>
+          </div>
+          <div class="mini">
+            <div class="mini-label">Abono</div>
+            <div class="mini-value" id="mAbono">…</div>
+          </div>
+          <div class="mini">
+            <div class="mini-label">Diferencia</div>
+            <div class="mini-value" id="mDif">…</div>
+          </div>
+        </div>
+
+        <div class="modal-chart">
+          <div class="chart-box tall"><canvas id="chartClienteMensual"></canvas></div>
+        </div>
       </div>
 
       <div class="table-wrap">
-        <table class="table" id="tablaUnicos">
+        <table id="tablaClienteMeses">
           <thead>
             <tr>
               <th>Mes</th>
-              <th class="num">Venta</th>
-              <th class="num">Abono</th>
-              <th class="num">Diferencia</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section class="card">
-      <div class="card-title">
-        <h2>Detalle por Cliente</h2>
-
-        <div class="search">
-          <input id="searchCliente" type="search" placeholder="Buscar cliente..." />
-          <select id="sortBy">
-            <option value="nombre">Ordenar: Nombre</option>
-            <option value="total_desc">Ordenar: Total ↓</option>
-            <option value="abono_desc">Ordenar: Abono ↓</option>
-            <option value="diferencia_asc">Ordenar: Deuda (más negativa) ↑</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="table-wrap">
-        <table class="table" id="tablaClientes">
-          <thead>
-            <tr>
-              <th>Cliente</th>
-              <th class="num">Total</th>
-              <th class="num">Abono</th>
-              <th class="num">Diferencia</th>
+              <th class="num">Monto</th>
             </tr>
           </thead>
           <tbody></tbody>
         </table>
       </div>
 
-      <div class="pager">
-        <button id="prevPage" class="btn btn-ghost">◀</button>
-        <div class="muted" id="pageInfo">Página 1</div>
-        <button id="nextPage" class="btn btn-ghost">▶</button>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="btnExportClienteCSV">Exportar cliente (CSV)</button>
       </div>
-    </section>
+    </div>
+  </div>
 
-    <section class="card">
-      <div class="card-title">
-        <h2>Gráficos</h2>
-      </div>
-
-      <div class="charts">
-        <div class="chart-box">
-          <h3>Visitas Únicas · Venta vs Abono</h3>
-          <canvas id="chartUnicosVentaAbono"></canvas>
-        </div>
-
-        <div class="chart-box">
-          <h3>Visitas Únicas · Diferencia</h3>
-          <canvas id="chartUnicosDiferencia"></canvas>
-        </div>
-
-        <div class="chart-box">
-          <h3>Top 10 Clientes con Mayor Deuda</h3>
-          <canvas id="chartTopDeuda"></canvas>
-        </div>
-      </div>
-    </section>
-
-    <footer class="footer muted">
-      <span>Tip: si actualizas el Excel, reemplaza <code>/data/reporte.xlsx</code> y recarga.</span>
-    </footer>
-  </main>
-
-  <!-- SheetJS (leer Excel .xlsx en el navegador) -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-
-  <!-- Chart.js -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-  <script src="script.js"></script>
+  <footer class="footer">
+    <small>Si cambias el Excel: reemplaza <code>/data/reporte.xlsx</code> y presiona “Recargar datos”.</small>
+  </footer>
 </body>
 </html>
