@@ -6,7 +6,7 @@
  *    clientes con ingreso > 0, total mes, promedio por cliente activo
  */
 
-const EXCEL_URL = "./data/reporte.xlsx";
+const EXCEL_URL = "../data/reporte.xlsx";
 
 let state = {
   unicos: [],       // [{mes, venta, abono, diferencia}]
