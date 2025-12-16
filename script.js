@@ -8,6 +8,10 @@
 
 const EXCEL_URL = "data/reporte.xlsx";
 
+if (typeof XLSX === "undefined") {
+  alert("SheetJS (XLSX) no cargó. Revisa que xlsx.full.min.js esté disponible (CDN bloqueado o falta archivo local).");
+  throw new Error("XLSX is not defined (SheetJS no cargó).");
+}
 
 
 let state = {
