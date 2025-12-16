@@ -35,12 +35,13 @@
   <main class="container">
 
     <!-- ===================== KPI: CLIENTES (FRECUENCIA) ===================== -->
-    <section class="block">
+    <section class="block block-frecuencia">
       <div class="block-header">
         <h2>Clientes con frecuencia (Detalle Clientes)</h2>
         <div class="block-note">KPIs anuales calculados desde la tabla Detalle Clientes (Total / Abono / Diferencia).</div>
       </div>
 
+      <!-- KPIs principales -->
       <div class="kpi-grid">
         <div class="kpi">
           <div class="kpi-label">Venta total anual (Clientes)</div>
@@ -65,18 +66,38 @@
           <div class="kpi-value" id="kpiClientes">…</div>
           <div class="kpi-hint">Mostrando: <span id="kpiMostrando">…</span></div>
         </div>
+      </div>
 
-        <!-- NUEVO KPI -->
+      <!-- KPIs anuales / promedios (segunda fila) -->
+      <div class="kpi-grid kpi-grid-secondary">
         <div class="kpi">
           <div class="kpi-label">Promedio mensual (Clientes)</div>
           <div class="kpi-value" id="kpiPromMesClientes">…</div>
           <div class="kpi-hint">Total anual / 12</div>
         </div>
+
+        <div class="kpi">
+          <div class="kpi-label">Promedio mensual por cliente activo</div>
+          <div class="kpi-value" id="kpiPromMesPorCliente">…</div>
+          <div class="kpi-hint">Promedio de (IngresoMes / ClientesActivosMes)</div>
+        </div>
+
+        <div class="kpi">
+          <div class="kpi-label">Mes con más clientes activos</div>
+          <div class="kpi-value" id="kpiMesMasActivos">…</div>
+          <div class="kpi-hint">Según ingresos &gt; 0</div>
+        </div>
+
+        <div class="kpi">
+          <div class="kpi-label">Mes con mayor ingreso</div>
+          <div class="kpi-value" id="kpiMesMayorIngreso">…</div>
+          <div class="kpi-hint">Suma del mes (Detalle Clientes)</div>
+        </div>
       </div>
     </section>
 
     <!-- ===================== KPI: UNICOS ===================== -->
-    <section class="block">
+    <section class="block block-unicos">
       <div class="block-header">
         <h2>Clientes únicos (Visitas Únicas)</h2>
         <div class="block-note">Totales calculados desde la tabla mensual de Visitas Únicas (puede no cubrir 12 meses).</div>
@@ -93,6 +114,12 @@
           <div class="kpi-label">Abono total (Visitas Únicas)</div>
           <div class="kpi-value" id="kpiAbonoTotalUnicos">…</div>
           <div class="kpi-hint">Coherencia: <span id="kpiCoherenciaUnicos">…</span></div>
+        </div>
+
+        <div class="kpi">
+          <div class="kpi-label">Promedio mensual (Únicos)</div>
+          <div class="kpi-value" id="kpiPromMesUnicos">…</div>
+          <div class="kpi-hint">Venta total / meses leídos</div>
         </div>
 
         <div class="kpi">
@@ -129,7 +156,9 @@
     <section class="block">
       <div class="block-header">
         <h2>Frecuencia mensual - Clientes (Detalle Clientes)</h2>
-        <div class="block-note">Cuenta cuántos clientes tienen ingreso &gt; 0 por mes y cuánto ingresó en total ese mes.</div>
+        <div class="block-note">
+          Cuenta cuántos clientes tienen ingreso &gt; 0 por mes, el ingreso total del mes y el promedio por cliente activo.
+        </div>
       </div>
 
       <div class="table-wrap">
@@ -139,6 +168,7 @@
               <th>Mes</th>
               <th class="num">Clientes con ingreso &gt; 0</th>
               <th class="num">Ingreso total del mes</th>
+              <th class="num">Promedio por cliente activo</th>
             </tr>
           </thead>
           <tbody></tbody>
