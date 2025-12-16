@@ -644,6 +644,203 @@ async function init() {
     alert(err.message || String(err));
   }
 }
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function buildResumenHtml() {
+  // Usa el estado actual (considera búsqueda/orden)
+  const clientesFiltrados = applyFiltersAndSort(state.clientes);
+
+  const ventaTotalClientes = state.clientes.reduce((a,c)=>a+(c.total||0),0);
+  const abonoTotalClientes = state.clientes.reduce((a,c)=>a+(c.abono||0),0);
+  const deudaTotalClientes = state.clientes.reduce((a,c)=>a+(c.diferencia||0),0);
+  const pctCobrado = ventaTotalClientes > 0 ? (abonoTotalClientes / ventaTotalClientes) * 100 : 0;
+
+  const ventaTotalUnicos = state.unicos.reduce((a,x)=>a+(x.venta||0),0);
+  const abonoTotalUnicos = state.unicos.reduce((a,x)=>a+(x.abono||0),0);
+  const mesesLeidos = state.unicos.length;
+  const promMesUnicos = mesesLeidos ? (ventaTotalUnicos / mesesLeidos) : 0;
+
+  const actividad = state.actividadMensual?.length
+    ? state.actividadMensual
+    : computeActividadMensualDesdeClientes(state.clientes);
+
+  const mesMasActivos = [...actividad].sort((a,b)=>b.activos-a.activos)[0];
+  const mesMayorIngreso = [...actividad].sort((a,b)=>b.totalMes-a.totalMes)[0];
+
+  const topDeuda = [...state.clientes]
+    .filter(c => typeof c.diferencia === "number")
+    .sort((a,b) => (a.diferencia||0) - (b.diferencia||0))
+    .slice(0, 10);
+
+  const ahora = new Date();
+  const fecha = ahora.toLocaleString("es-CL", { dateStyle:"medium", timeStyle:"short" });
+
+  const filtroTexto = state.query?.trim()
+    ? `Búsqueda: “${escapeHtml(state.query.trim())}”`
+    : "Búsqueda: (sin filtro)";
+
+  return `
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Resumen Reporte Financiero</title>
+  <style>
+    *{box-sizing:border-box}
+    body{font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; margin:24px; color:#0b1220}
+    h1{margin:0 0 8px 0; font-size:20px}
+    .meta{color:#555; font-size:12px; margin-bottom:16px}
+    .grid{display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:12px; margin:12px 0 18px}
+    .card{border:1px solid #ddd; border-radius:12px; padding:12px}
+    .label{color:#666; font-size:12px}
+    .value{font-weight:800; font-size:18px; margin-top:6px}
+    .hint{color:#666; font-size:12px; margin-top:4px}
+    table{width:100%; border-collapse:collapse; margin-top:10px}
+    th,td{border-bottom:1px solid #eee; padding:8px 6px; font-size:12px; text-align:left}
+    th{color:#555}
+    td.num, th.num{text-align:right; font-variant-numeric: tabular-nums}
+    .section{margin-top:18px}
+    @media print{
+      body{margin:12mm}
+    }
+  </style>
+</head>
+<body>
+  <h1>Resumen Reporte Financiero</h1>
+  <div class="meta">
+    Generado: ${escapeHtml(fecha)} · ${filtroTexto} · Orden: ${escapeHtml(state.sort)}
+  </div>
+
+  <div class="section">
+    <h2 style="margin:0 0 8px 0; font-size:14px;">Clientes con frecuencia (Detalle Clientes)</h2>
+    <div class="grid">
+      <div class="card">
+        <div class="label">Venta total anual</div>
+        <div class="value">${formatCLP(ventaTotalClientes)}</div>
+        <div class="hint">% cobrado: ${pctCobrado.toFixed(1)}%</div>
+      </div>
+      <div class="card">
+        <div class="label">Abono total anual</div>
+        <div class="value">${formatCLP(abonoTotalClientes)}</div>
+        <div class="hint">Clientes: ${state.clientes.length} · Mostrando: ${clientesFiltrados.length}</div>
+      </div>
+      <div class="card">
+        <div class="label">Deuda total anual</div>
+        <div class="value">${formatCLP(deudaTotalClientes)}</div>
+        <div class="hint">Diferencia (suma)</div>
+      </div>
+      <div class="card">
+        <div class="label">Promedio mensual (Total anual / 12)</div>
+        <div class="value">${formatCLP(ventaTotalClientes / 12)}</div>
+        <div class="hint">Referencia mensual</div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="label">Mes con más clientes activos</div>
+        <div class="value">${mesMasActivos ? `${escapeHtml(mesMasActivos.mes)} (${mesMasActivos.activos})` : "—"}</div>
+        <div class="hint">Activos = ingreso &gt; 0</div>
+      </div>
+      <div class="card">
+        <div class="label">Mes con mayor ingreso</div>
+        <div class="value">${mesMayorIngreso ? `${escapeHtml(mesMayorIngreso.mes)} (${formatCLP(mesMayorIngreso.totalMes)})` : "—"}</div>
+        <div class="hint">Suma del mes</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2 style="margin:0 0 8px 0; font-size:14px;">Clientes únicos (Visitas Únicas)</h2>
+    <div class="grid">
+      <div class="card">
+        <div class="label">Venta total</div>
+        <div class="value">${formatCLP(ventaTotalUnicos)}</div>
+        <div class="hint">Meses leídos: ${mesesLeidos}</div>
+      </div>
+      <div class="card">
+        <div class="label">Abono total</div>
+        <div class="value">${formatCLP(abonoTotalUnicos)}</div>
+        <div class="hint">Promedio mensual (venta/meses): ${formatCLP(promMesUnicos)}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2 style="margin:0 0 8px 0; font-size:14px;">Top 10 clientes con mayor deuda</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Cliente</th>
+          <th class="num">Diferencia</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${topDeuda.map(x => `
+          <tr>
+            <td>${escapeHtml(x.nombre)}</td>
+            <td class="num">${formatCLP(x.diferencia || 0)}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section">
+    <h2 style="margin:0 0 8px 0; font-size:14px;">Actividad mensual (Clientes con ingreso &gt; 0)</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Mes</th>
+          <th class="num">Clientes activos</th>
+          <th class="num">Ingreso total</th>
+          <th class="num">Promedio por activo</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${actividad.map(r => `
+          <tr>
+            <td>${escapeHtml(r.mes)}</td>
+            <td class="num">${r.activos}</td>
+            <td class="num">${formatCLP(r.totalMes)}</td>
+            <td class="num">${formatCLP(r.promedioActivo)}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    // Auto-print opcional: si quieres que se abra y altiro imprima, descomenta:
+    // window.onload = () => window.print();
+  </script>
+</body>
+</html>
+  `;
+}
+
+function abrirResumenPdf() {
+  const w = window.open("", "_blank");
+  if (!w) {
+    alert("Tu navegador bloqueó la ventana emergente. Permite popups para generar el Resumen (PDF).");
+    return;
+  }
+  w.document.open();
+  w.document.write(buildResumenHtml());
+  w.document.close();
+  // Puedes imprimir automáticamente:
+  w.focus();
+  w.print();
+}
+
 
 function wireUI() {
   el("btnReload")?.addEventListener("click", init);
@@ -672,6 +869,9 @@ function wireUI() {
     state.page += 1;
     renderClientesTable(state.clientes);
   });
+  
+  el("btnResumenPdf")?.addEventListener("click", () => abrirResumenPdf());
+
 }
 
 wireUI();
