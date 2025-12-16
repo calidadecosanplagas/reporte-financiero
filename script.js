@@ -189,15 +189,20 @@ function parseDetalleClientes(ws) {
 }
 
 function computeKPIs(unicos, clientes) {
-  const ventaTotal = unicos.reduce((a, x) => a + x.venta, 0);
-  const abonoTotal = unicos.reduce((a, x) => a + x.abono, 0);
-  const deudaTotal = unicos.reduce((a, x) => a + x.diferencia, 0);
+  // === TOTALES REALES DESDE DETALLE CLIENTES ===
+  const ventaTotal = clientes.reduce((a, c) => a + (c.total || 0), 0);
+  const abonoTotal = clientes.reduce((a, c) => a + (c.abono || 0), 0);
+  const deudaTotal = clientes.reduce((a, c) => a + (c.diferencia || 0), 0);
+
+  // Conteo real de clientes
+  const totalClientes = clientes.length;
 
   setText("kpiVentaTotal", formatCLP(ventaTotal));
   setText("kpiAbonoTotal", formatCLP(abonoTotal));
   setText("kpiDeudaTotal", formatCLP(deudaTotal));
-  setText("kpiClientes", String(clientes.length)); // conteo real
+  setText("kpiClientes", String(totalClientes));
 }
+
 
 function renderUnicosTable(unicos) {
   clearTable("tablaUnicos");
