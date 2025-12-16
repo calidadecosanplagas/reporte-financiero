@@ -948,18 +948,53 @@ function buildResumenHtml() {
 }
 
 function abrirResumenPdf() {
-  const w = window.open("", "_blank");
-  if (!w) {
-    alert("Tu navegador bloqueó la ventana emergente. Permite popups para generar el Resumen (PDF).");
-    return;
-  }
-  w.document.open();
-  w.document.write(buildResumenHtml());
-  w.document.close();
-  // Puedes imprimir automáticamente:
-  w.focus();
-  w.print();
+  const html = buildResumenHtml();
+
+  // 1) Crear un iframe oculto
+  const iframe = document.createElement("iframe");
+  iframe.style.position = "fixed";
+  iframe.style.right = "0";
+  iframe.style.bottom = "0";
+  iframe.style.width = "0";
+  iframe.style.height = "0";
+  iframe.style.border = "0";
+  iframe.style.opacity = "0";
+  iframe.setAttribute("aria-hidden", "true");
+  document.body.appendChild(iframe);
+
+  const doc = iframe.contentDocument || iframe.contentWindow.document;
+
+  // 2) Escribir el HTML del resumen dentro del iframe
+  doc.open();
+  doc.write(html);
+  doc.close();
+
+  // 3) Esperar a que cargue y mandar a imprimir
+  iframe.onload = () => {
+    const w = iframe.contentWindow;
+
+    // Algunos navegadores necesitan un pequeño delay
+    setTimeout(() => {
+      try {
+        w.focus();
+        w.print();
+      } finally {
+        // 4) Limpiar iframe cuando termine (o fallback)
+        const cleanup = () => {
+          iframe.remove();
+          window.removeEventListener("afterprint", cleanup);
+        };
+
+        // afterprint del window principal suele funcionar mejor
+        window.addEventListener("afterprint", cleanup);
+
+        // fallback por si afterprint no dispara
+        setTimeout(cleanup, 1500);
+      }
+    }, 50);
+  };
 }
+
 
 
 function wireUI() {
@@ -990,7 +1025,7 @@ function wireUI() {
     renderClientesTable(state.clientes);
   });
   
-  el("btnResumenPdf")?.addEventListener("click", () => abrirResumenPdf());
+  el("btnResumen")?.addEventListener("click", abrirResumenPdf);
 
 }
 
