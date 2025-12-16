@@ -387,6 +387,21 @@ function destroyCharts() {
     }
   }
 }
+function pct(n) {
+  if (!isFinite(n)) return "0%";
+  return `${(n * 100).toFixed(1)}%`;
+}
+
+function clamp01(x) {
+  return Math.max(0, Math.min(1, x));
+}
+
+function scoreLabel(s) {
+  if (s >= 0.75) return "Alto";
+  if (s >= 0.45) return "Medio";
+  return "Bajo";
+}
+
 
 function chartMoneyTicks(v) {
   const n = Number(v);
