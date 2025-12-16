@@ -2,14 +2,16 @@
  * Reporte financiero - lee /data/reporte.xlsx directamente (sin CSV)
  * - Detecta hojas por encabezados
  * - Renderiza KPIs + tablas + paginación + búsqueda + gráficos
- * - NUEVO: frecuencia mensual desde Detalle Clientes (clientes con ingreso > 0 y total mes)
+ * - Frecuencia mensual desde Detalle Clientes:
+ *    clientes con ingreso > 0, total mes, promedio por cliente activo
  */
 
 const EXCEL_URL = "./data/reporte.xlsx";
 
 let state = {
   unicos: [],       // [{mes, venta, abono, diferencia}]
-  clientes: [],     // [{nombre,total,abono,diferencia, meses:{...}}]
+  clientes: [],     // [{nombre,total,abono,diferencia, meses:{Enero:..}}]
+  actividadMensual: [], // [{mes, activos, totalMes, promedioActivo}]
   page: 1,
   pageSize: 25,
   query: "",
@@ -33,8 +35,14 @@ function toNumberCLP(value) {
   let s = String(value).trim();
   if (!s || s === "$") return 0;
 
+  // quita $ y espacios
   s = s.replace(/\$/g, "").replace(/\s+/g, "");
+
+  // normaliza miles/decimales
+  // 1.234.567 -> 1234567
+  // 1,23 (no deberías tener decimales, pero por si acaso)
   s = s.replace(/\./g, "").replace(/,/g, ".");
+
   const n = Number(s);
   return isFinite(n) ? n : 0;
 }
@@ -68,6 +76,11 @@ function addRow(tid, cells) {
   tb.appendChild(tr);
 }
 
+function safeDiv(a, b) {
+  if (!b) return 0;
+  return a / b;
+}
+
 /* ===================== DETECT + PARSE ===================== */
 
 function detectSheets(workbook) {
@@ -79,8 +92,9 @@ function detectSheets(workbook) {
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
     if (!rows || rows.length === 0) continue;
 
-    const headCandidates = rows.slice(0, 8).map(r => r.map(x => String(x).trim()));
+    const headCandidates = rows.slice(0, 10).map(r => r.map(x => String(x).trim()));
 
+    // Detalle clientes
     const hasNombreCliente = headCandidates.some(r => r.includes("Nombre Cliente"));
     const hasTotal = headCandidates.some(r => r.includes("Total"));
     const hasEnero = headCandidates.some(r => r.includes("Enero"));
@@ -91,6 +105,7 @@ function detectSheets(workbook) {
       continue;
     }
 
+    // Unicos
     const hasVenta = headCandidates.some(r => r.includes("Venta"));
     const hasAbono = headCandidates.some(r => r.includes("Abono"));
     const hasNombreOrMes = headCandidates.some(r => r.includes("Nombre") || r.includes("Mes"));
@@ -109,7 +124,7 @@ function parseUnicos(ws) {
   if (!rows || rows.length === 0) return [];
 
   let headerRowIndex = -1;
-  for (let i = 0; i < Math.min(12, rows.length); i++) {
+  for (let i = 0; i < Math.min(15, rows.length); i++) {
     const r = rows[i].map(x => String(x).trim());
     if ((r.includes("Nombre") || r.includes("Mes")) && r.includes("Venta") && r.includes("Abono")) {
       headerRowIndex = i;
@@ -144,7 +159,7 @@ function parseDetalleClientes(ws) {
   if (!rows || rows.length === 0) return [];
 
   let headerRowIndex = -1;
-  for (let i = 0; i < Math.min(12, rows.length); i++) {
+  for (let i = 0; i < Math.min(15, rows.length); i++) {
     const r = rows[i].map(x => String(x).trim());
     if (r.includes("Nombre Cliente") && r.includes("Total") && r.includes("Abono") && r.includes("Diferencia")) {
       headerRowIndex = i;
@@ -166,7 +181,6 @@ function parseDetalleClientes(ws) {
   const out = [];
   for (let i = headerRowIndex + 1; i < rows.length; i++) {
     const r = rows[i];
-
     const nombre = String(r[idxNombre] ?? "").trim();
     if (!nombre) continue;
 
@@ -186,10 +200,43 @@ function parseDetalleClientes(ws) {
   return out;
 }
 
+/* ===================== FRECUENCIA MENSUAL (CLIENTES) ===================== */
+
+function computeActividadMensualDesdeClientes(clientes) {
+  const meses = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+
+  return meses.map(m => {
+    let activos = 0;
+    let totalMes = 0;
+
+    for (const c of clientes) {
+      const v = (c.meses?.[m] ?? 0);
+      if (v > 0) activos += 1;
+      totalMes += v;
+    }
+
+    const promedioActivo = activos > 0 ? (totalMes / activos) : 0;
+
+    return { mes: m, activos, totalMes, promedioActivo };
+  });
+}
+
+function renderActividadMensualTable(rows) {
+  clearTable("tablaActividadMensual");
+  for (const r of rows) {
+    addRow("tablaActividadMensual", [
+      { text: r.mes },
+      { text: String(r.activos), className: "num" },
+      { text: formatCLP(r.totalMes), className: "num" },
+      { text: formatCLP(r.promedioActivo), className: "num" },
+    ]);
+  }
+}
+
 /* ===================== KPIs ===================== */
 
 function computeKPIs(unicos, clientes) {
-  // Totales ANUALES desde Detalle Clientes (lo real del año)
+  // ===================== CLIENTES (DETALLE CLIENTES) =====================
   const ventaTotalClientes = clientes.reduce((a, c) => a + (c.total || 0), 0);
   const abonoTotalClientes = clientes.reduce((a, c) => a + (c.abono || 0), 0);
   const deudaTotalClientes = clientes.reduce((a, c) => a + (c.diferencia || 0), 0);
@@ -207,28 +254,60 @@ function computeKPIs(unicos, clientes) {
   setText("kpiSinDeuda", String(sinDeuda));
   setText("kpiConDeuda", String(conDeuda));
   setText("kpiPctCobrado", `${pctCobrado.toFixed(1)}%`);
-  setText("kpiMostrando", `${Math.min(totalClientes, totalClientes)} / ${totalClientes}`);
 
-  // NUEVO: promedio mensual del año (clientes con frecuencia)
+  // “Mostrando” depende del filtro actual (se actualiza también en wireUI)
+  const filtered = applyFiltersAndSort(clientes);
+  setText("kpiMostrando", `${filtered.length} / ${clientes.length}`);
+
+  // promedio mensual anual (clientes)
   setText("kpiPromMesClientes", formatCLP(ventaTotalClientes / 12));
 
-  // Totales desde Visitas Únicas (mensual, puede no ser 12 meses)
-  const ventaTotalUnicos = unicos.reduce((a, x) => a + x.venta, 0);
-  const abonoTotalUnicos = unicos.reduce((a, x) => a + x.abono, 0);
+  // ===================== ACTIVIDAD MENSUAL + KPIs EXTRA (CLIENTES) =====================
+  const actividad = computeActividadMensualDesdeClientes(clientes);
+  state.actividadMensual = actividad;
+
+  // KPI: Promedio mensual por cliente activo (promedio de promedios mensuales)
+  const promedios = actividad.map(x => x.promedioActivo).filter(x => x > 0);
+  const promMesPorCliente = promedios.length ? (promedios.reduce((a,b)=>a+b,0) / promedios.length) : 0;
+  setText("kpiPromMesPorCliente", formatCLP(promMesPorCliente));
+
+  // KPI: mes con más activos
+  const mesMasActivos = [...actividad].sort((a,b) => b.activos - a.activos)[0];
+  setText("kpiMesMasActivos", mesMasActivos ? `${mesMasActivos.mes} (${mesMasActivos.activos})` : "—");
+
+  // KPI: mes con mayor ingreso
+  const mesMayorIngreso = [...actividad].sort((a,b) => b.totalMes - a.totalMes)[0];
+  setText("kpiMesMayorIngreso", mesMayorIngreso ? `${mesMayorIngreso.mes} (${formatCLP(mesMayorIngreso.totalMes)})` : "—");
+
+  // ===================== ÚNICOS (VISITAS ÚNICAS) =====================
+  const ventaTotalUnicos = unicos.reduce((a, x) => a + (x.venta || 0), 0);
+  const abonoTotalUnicos = unicos.reduce((a, x) => a + (x.abono || 0), 0);
   const mesesLeidos = unicos.length;
 
   setText("kpiVentaTotalUnicos", formatCLP(ventaTotalUnicos));
   setText("kpiAbonoTotalUnicos", formatCLP(abonoTotalUnicos));
   setText("kpiMesesUnicos", String(mesesLeidos));
 
-  // coherencia “simple”
-  const coherencia = (mesesLeidos > 0) ? "OK" : "Sin datos";
+  // coherencia (simple pero útil): suma difs vs (abono - venta)
+  const difExcel = unicos.reduce((a, x) => a + (x.diferencia || 0), 0);
+  const difCalc = abonoTotalUnicos - ventaTotalUnicos;
+  const delta = Math.abs(difExcel - difCalc);
+  const coherencia = mesesLeidos === 0
+    ? "Sin datos"
+    : (delta <= 2 ? "OK" : `Revisar (Δ ${formatCLP(delta)})`);
   setText("kpiCoherenciaUnicos", coherencia);
+
+  // promedio mensual únicos (venta / meses leídos)
+  const promMesUnicos = mesesLeidos > 0 ? (ventaTotalUnicos / mesesLeidos) : 0;
+  setText("kpiPromMesUnicos", formatCLP(promMesUnicos));
 
   // Comparación venta anual (clientes - unicos)
   const diffVenta = ventaTotalClientes - ventaTotalUnicos;
   const sign = diffVenta >= 0 ? "+" : "";
   setText("kpiComparacionVenta", `${sign}${formatCLP(diffVenta)}`);
+
+  // Render de tabla actividad mensual (ya calculada arriba)
+  renderActividadMensualTable(actividad);
 }
 
 /* ===================== TABLES ===================== */
@@ -257,7 +336,7 @@ function applyFiltersAndSort(clientes) {
     case "abono_desc":
       out.sort((a,b) => (b.abono||0) - (a.abono||0)); break;
     case "diferencia_asc":
-      out.sort((a,b) => (a.diferencia||0) - (b.diferencia||0)); break;
+      out.sort((a,b) => (a.diferencia||0) - (b.diferencia||0)); break; // más negativo primero
     default:
       out.sort((a,b) => a.nombre.localeCompare(b.nombre, "es"));
   }
@@ -287,36 +366,9 @@ function renderClientesTable(clientes) {
   }
 
   setText("pageInfo", `Página ${state.page} de ${totalPages} · Mostrando ${pageRows.length} de ${filtered.length}`);
-}
 
-/* ===================== FRECUENCIA MENSUAL (CLIENTES) ===================== */
-
-function computeActividadMensualDesdeClientes(clientes) {
-  const meses = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
-
-  return meses.map(m => {
-    let activos = 0;
-    let totalMes = 0;
-
-    for (const c of clientes) {
-      const v = (c.meses?.[m] ?? 0);
-      if (v > 0) activos += 1;
-      totalMes += v;
-    }
-
-    return { mes: m, activos, totalMes };
-  });
-}
-
-function renderActividadMensualTable(rows) {
-  clearTable("tablaActividadMensual");
-  for (const r of rows) {
-    addRow("tablaActividadMensual", [
-      { text: r.mes },
-      { text: String(r.activos), className: "num" },
-      { text: formatCLP(r.totalMes), className: "num" },
-    ]);
-  }
+  // mantiene KPI “Mostrando” coherente con búsqueda/filtros
+  setText("kpiMostrando", `${filtered.length} / ${clientes.length}`);
 }
 
 /* ===================== CHART HELPERS ===================== */
@@ -333,19 +385,27 @@ function destroyCharts() {
 function chartMoneyTicks(v) {
   const n = Number(v);
   if (!isFinite(n)) return v;
-  return formatCLP(n).replace("$", ""); // deja números con puntos, sin $
+
+  // abreviación para no llenar el eje con números gigantes
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000_000) return `${Math.round(n / 1_000_000_000)}B`;
+  if (abs >= 1_000_000) return `${Math.round(n / 1_000_000)}M`;
+  if (abs >= 1_000) return `${Math.round(n / 1_000)}K`;
+  return String(Math.round(n));
 }
+
+const CHART_GRID_COLOR = "rgba(255,255,255,.08)";
+const CHART_TICK_COLOR = "rgba(255,255,255,.65)";
 
 /* ===================== CHARTS ===================== */
 
 function renderCharts(unicos, clientes) {
   destroyCharts();
 
-  // Unicos
+  // ========== 1) Unicos - Venta vs Abono (Line) ==========
   const labelsUnicos = unicos.map(x => x.mes);
   const ventas = unicos.map(x => x.venta);
   const abonos = unicos.map(x => x.abono);
-  const difs = unicos.map(x => x.diferencia);
 
   const ctx1 = el("chartUnicosVentaAbono");
   if (ctx1) {
@@ -354,18 +414,31 @@ function renderCharts(unicos, clientes) {
       data: {
         labels: labelsUnicos,
         datasets: [
-          { label: "Venta", data: ventas, tension: 0.25, pointRadius: 3 },
-          { label: "Abono", data: abonos, tension: 0.25, pointRadius: 3 },
+          { label: "Venta", data: ventas, tension: 0.35, pointRadius: 3, borderWidth: 2 },
+          { label: "Abono", data: abonos, tension: 0.35, pointRadius: 3, borderWidth: 2 },
         ]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { position: "bottom" } },
-        scales: { y: { ticks: { callback: (v) => chartMoneyTicks(v) } } }
+        plugins: {
+          legend: { position: "bottom", labels: { color: CHART_TICK_COLOR } },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => `${ctx.dataset.label}: ${formatCLP(ctx.raw)}`
+            }
+          }
+        },
+        scales: {
+          x: { ticks: { color: CHART_TICK_COLOR }, grid: { color: "rgba(255,255,255,.05)" } },
+          y: { ticks: { color: CHART_TICK_COLOR, callback: (v) => chartMoneyTicks(v) }, grid: { color: CHART_GRID_COLOR } }
+        }
       }
     });
   }
+
+  // ========== 2) Unicos - Diferencia (Bar) ==========
+  const difs = unicos.map(x => x.diferencia);
 
   const ctx2 = el("chartUnicosDiferencia");
   if (ctx2) {
@@ -378,13 +451,23 @@ function renderCharts(unicos, clientes) {
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { position: "bottom" } },
-        scales: { y: { ticks: { callback: (v) => chartMoneyTicks(v) } } }
+        plugins: {
+          legend: { position: "bottom", labels: { color: CHART_TICK_COLOR } },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => `${ctx.dataset.label}: ${formatCLP(ctx.raw)}`
+            }
+          }
+        },
+        scales: {
+          x: { ticks: { color: CHART_TICK_COLOR }, grid: { color: "rgba(255,255,255,.05)" } },
+          y: { ticks: { color: CHART_TICK_COLOR, callback: (v) => chartMoneyTicks(v) }, grid: { color: CHART_GRID_COLOR } }
+        }
       }
     });
   }
 
-  // Top deuda (más negativo primero)
+  // ========== 3) Top 10 Deuda (más negativo primero) ==========
   const topDeuda = [...clientes]
     .filter(c => typeof c.diferencia === "number")
     .sort((a,b) => (a.diferencia||0) - (b.diferencia||0))
@@ -404,18 +487,27 @@ function renderCharts(unicos, clientes) {
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { position: "bottom" } },
+        plugins: {
+          legend: { position: "bottom", labels: { color: CHART_TICK_COLOR } },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => `${ctx.dataset.label}: ${formatCLP(ctx.raw)}`
+            }
+          }
+        },
         scales: {
-          x: { ticks: { autoSkip: false, maxRotation: 0 } },
-          y: { ticks: { callback: (v) => chartMoneyTicks(v) } }
+          x: {
+            ticks: { color: CHART_TICK_COLOR, autoSkip: false, maxRotation: 0, minRotation: 0 },
+            grid: { display: false }
+          },
+          y: { ticks: { color: CHART_TICK_COLOR, callback: (v) => chartMoneyTicks(v) }, grid: { color: CHART_GRID_COLOR } }
         }
       }
     });
   }
 
-  // Actividad mensual desde clientes (Ingreso total por mes)
-  const act = computeActividadMensualDesdeClientes(clientes);
-  renderActividadMensualTable(act);
+  // ========== 4) Actividad mensual - Ingreso total por mes ==========
+  const act = state.actividadMensual?.length ? state.actividadMensual : computeActividadMensualDesdeClientes(clientes);
 
   const ctx5 = el("chartActividadMensual");
   if (ctx5) {
@@ -430,8 +522,18 @@ function renderCharts(unicos, clientes) {
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { position: "bottom" } },
-        scales: { y: { ticks: { callback: (v) => chartMoneyTicks(v) } } }
+        plugins: {
+          legend: { position: "bottom", labels: { color: CHART_TICK_COLOR } },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => `${ctx.dataset.label}: ${formatCLP(ctx.raw)}`
+            }
+          }
+        },
+        scales: {
+          x: { ticks: { color: CHART_TICK_COLOR }, grid: { color: "rgba(255,255,255,.05)" } },
+          y: { ticks: { color: CHART_TICK_COLOR, callback: (v) => chartMoneyTicks(v) }, grid: { color: CHART_GRID_COLOR } }
+        }
       }
     });
   }
@@ -441,9 +543,8 @@ function renderCharts(unicos, clientes) {
 
 async function loadExcel() {
   const res = await fetch(EXCEL_URL, { cache: "no-store" });
-  if (!res.ok) {
-    throw new Error(`No se pudo cargar ${EXCEL_URL}. ¿Está en /data y se llama reporte.xlsx?`);
-  }
+  if (!res.ok) throw new Error(`No se pudo cargar ${EXCEL_URL}. ¿Está en /data y se llama reporte.xlsx?`);
+
   const ab = await res.arrayBuffer();
   const wb = XLSX.read(ab, { type: "array" });
 
@@ -497,21 +598,14 @@ function exportClientesCSV(clientes) {
 
 async function init() {
   try {
-    setText("kpiVentaTotalClientes", "…");
-    setText("kpiAbonoTotalClientes", "…");
-    setText("kpiDeudaTotalClientes", "…");
-    setText("kpiClientes", "…");
-    setText("kpiSinDeuda", "…");
-    setText("kpiConDeuda", "…");
-    setText("kpiPctCobrado", "…");
-    setText("kpiMostrando", "…");
-    setText("kpiPromMesClientes", "…");
-
-    setText("kpiVentaTotalUnicos", "…");
-    setText("kpiAbonoTotalUnicos", "…");
-    setText("kpiMesesUnicos", "…");
-    setText("kpiCoherenciaUnicos", "…");
-    setText("kpiComparacionVenta", "…");
+    // placeholders (evita “undefined” en pantalla)
+    [
+      "kpiVentaTotalClientes","kpiAbonoTotalClientes","kpiDeudaTotalClientes","kpiClientes",
+      "kpiSinDeuda","kpiConDeuda","kpiPctCobrado","kpiMostrando",
+      "kpiPromMesClientes","kpiPromMesPorCliente","kpiMesMasActivos","kpiMesMayorIngreso",
+      "kpiVentaTotalUnicos","kpiAbonoTotalUnicos","kpiMesesUnicos","kpiCoherenciaUnicos",
+      "kpiPromMesUnicos","kpiComparacionVenta"
+    ].forEach(id => setText(id, "…"));
 
     const { clientes, unicos } = await loadExcel();
 
@@ -534,18 +628,12 @@ function wireUI() {
   el("btnReload")?.addEventListener("click", init);
   el("btnPrint")?.addEventListener("click", () => window.print());
 
-  el("btnExportCsv")?.addEventListener("click", () => {
-    exportClientesCSV(state.clientes);
-  });
+  el("btnExportCsv")?.addEventListener("click", () => exportClientesCSV(state.clientes));
 
   el("searchCliente")?.addEventListener("input", (e) => {
     state.query = e.target.value || "";
     state.page = 1;
     renderClientesTable(state.clientes);
-
-    // actualiza “Mostrando”
-    const filtered = applyFiltersAndSort(state.clientes);
-    setText("kpiMostrando", `${filtered.length} / ${state.clientes.length}`);
   });
 
   el("sortBy")?.addEventListener("change", (e) => {
