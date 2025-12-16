@@ -950,7 +950,7 @@ function buildResumenHtml() {
 function abrirResumenPdf() {
   const html = buildResumenHtml();
 
-  // 1) Crear un iframe oculto
+  // 1️⃣ Crear iframe oculto
   const iframe = document.createElement("iframe");
   iframe.style.position = "fixed";
   iframe.style.right = "0";
@@ -960,38 +960,31 @@ function abrirResumenPdf() {
   iframe.style.border = "0";
   iframe.style.opacity = "0";
   iframe.setAttribute("aria-hidden", "true");
+
+  // 2️⃣ Cargar contenido usando srcdoc (CLAVE)
+  iframe.srcdoc = html;
+
   document.body.appendChild(iframe);
 
-  const doc = iframe.contentDocument || iframe.contentWindow.document;
-
-  // 2) Escribir el HTML del resumen dentro del iframe
-  doc.open();
-  doc.write(html);
-  doc.close();
-
-  // 3) Esperar a que cargue y mandar a imprimir
+  // 3️⃣ Imprimir cuando el iframe esté listo
   iframe.onload = () => {
-    const w = iframe.contentWindow;
+    const win = iframe.contentWindow;
 
-    // Algunos navegadores necesitan un pequeño delay
     setTimeout(() => {
-      try {
-        w.focus();
-        w.print();
-      } finally {
-        // 4) Limpiar iframe cuando termine (o fallback)
-        const cleanup = () => {
-          iframe.remove();
-          window.removeEventListener("afterprint", cleanup);
-        };
+      win.focus();
+      win.print();
 
-        // afterprint del window principal suele funcionar mejor
-        window.addEventListener("afterprint", cleanup);
+      // 4️⃣ Limpieza automática
+      const cleanup = () => {
+        iframe.remove();
+        window.removeEventListener("afterprint", cleanup);
+      };
 
-        // fallback por si afterprint no dispara
-        setTimeout(cleanup, 1500);
-      }
-    }, 50);
+      window.addEventListener("afterprint", cleanup);
+
+      // fallback
+      setTimeout(cleanup, 2000);
+    }, 100);
   };
 }
 
